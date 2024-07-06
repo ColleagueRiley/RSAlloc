@@ -44,7 +44,13 @@ all:
 	$(CC) RGFW-test.c $(LIBS) $(WARNINGS)  -o test-RGFW
 
 debug:
-	make
+	$(CC) test.c $(LIBS) $(WARNINGS) -D RSA_DEBUG  -o test
+	$(CC) test.c $(LIBS) $(WARNINGS) -D RSA_DEBUG  -o test-bss -D RSA_BSS
+	$(CC) RGFW-test.c $(LIBS) $(WARNINGS) -D RSA_DEBUG -o test-RGFW
+	
 	./test$(EXT)
 	./test-bss$(EXT)
 	./test-RGFW$(EXT)
+
+clean:
+	rm test$(EXT) test-bss$(EXT) test-RGFW$(EXT) *.exe
