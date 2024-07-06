@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-int main() {
+int main(void) {
     srand(time(NULL));
 
     RSA_init(0);
@@ -16,7 +16,7 @@ int main() {
     
     size_t i;
     for (i = 0; i < 20; i++) {
-        printf("%i : %i\n", i, array[i]);
+        printf("%li : %i\n", i, array[i]);
     }
 
     RSA_free(array);
