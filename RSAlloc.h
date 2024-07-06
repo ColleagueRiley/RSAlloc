@@ -193,10 +193,10 @@ void* RSA_calloc(size_t size, size_t typeSize) {
     if (ptr == NULL)
         return NULL;
 
-    /*size_t i; 
+    size_t i; 
     for (i = 0; i < size; i++) {
         ((u8*)ptr)[i] = 0;  
-    }*/
+    }
 
     return ptr;
 }
