@@ -206,7 +206,7 @@ void RSA_free(void* ptr) {
 
     size_t i = 0; 
     for (i = 0; i < RSA_chunkLen; i++) {
-        if (index = RSA_chunks[i].start) {
+        if (index == RSA_chunks[i].start) {
             RSA_chunks[i].used = 0;
         }
     }
