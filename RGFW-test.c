@@ -1,7 +1,4 @@
 #define RGFW_IMPLEMENTATION
-
-#define RSA_DEFAULT_ARENA 400000 /* ~ 400 KB */
-
 #define RSALLOC_IMPLEMENTATION
 #include "RSAlloc.h"
 
@@ -31,7 +28,7 @@ void refreshCallback(RGFW_window* win) {
 
 
 int main(void) {    
-    RSA_init(400000);
+    RSA_init(0);
     RGFW_window* win = RGFW_createWindow("RGFW Example Window", RGFW_RECT(500, 500, 500, 500), RGFW_ALLOW_DND | RGFW_CENTER);
     RGFW_window_makeCurrent(win);
     
