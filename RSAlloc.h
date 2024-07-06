@@ -42,10 +42,10 @@
 #include <stdio.h>
 #endif
 
-#if !defined(RSA_MALLOC) && !defined(RSA_BSS) && (defined(__linux__) || defined(__unix__) || defined(__APPLE__))
+#if !defined(RSA_MALLOC) && !defined(RSA_USE_MALLOC) && !defined(RSA_BSS) && (defined(__linux__) || defined(__unix__) || defined(__APPLE__))
 #define RSA_MMAP
 
-#elif !defined(RSA_MALLOC) && !defined(RSA_BSS) && (defined(_WIN32) || defined(_WIN64))
+#elif !defined(RSA_MALLOC) && !defined(RSA_USE_MALLOC) && !defined(RSA_BSS) && (defined(_WIN32) || defined(_WIN64))
 #define RSA_VIRTUAL_ALLOC
 
 #elif !defined(RSA_BSS) && !defined(RSA_MMAP) && !defined(RSA_VIRTUAL_ALLOC)

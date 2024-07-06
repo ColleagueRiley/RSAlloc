@@ -39,16 +39,19 @@ ifeq ($(detected_OS),Linux)
 endif
 
 all:
-	$(CC) test.c $(LIBS) $(WARNINGS)  -o test
+	$(CC) test.c $(WARNINGS)  -o test
+	$(CC) test.c -D RSA_USE_MALLOC $(WARNIGNS) -o test-malloc
 	$(CC) test.c $(LIBS) $(WARNINGS) -o test-bss -D RSA_BSS
 	$(CC) RGFW-test.c $(LIBS) $(WARNINGS)  -o test-RGFW
 
 debug:
-	$(CC) test.c $(LIBS) $(WARNINGS) -D RSA_DEBUG  -o test
-	$(CC) test.c $(LIBS) $(WARNINGS) -D RSA_DEBUG  -o test-bss -D RSA_BSS
+	$(CC) test.c $(WARNINGS) -D RSA_DEBUG  -o test
+	$(CC) test.c -D RSA_USE_MALLOC -D RSA_DEBUG $(WARNIGNS) -o test-malloc
+	$(CC) test.c $(WARNINGS) -D RSA_DEBUG  -o test-bss -D RSA_BSS
 	$(CC) RGFW-test.c $(LIBS) $(WARNINGS) -D RSA_DEBUG -o test-RGFW
-	
+
 	./test$(EXT)
+	./test-malloc$(EXT)
 	./test-bss$(EXT)
 	./test-RGFW$(EXT)
 
