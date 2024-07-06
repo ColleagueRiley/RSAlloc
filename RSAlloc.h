@@ -109,6 +109,7 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+#include <string.h>
 
 typedef struct RSA_chunk {
     size_t start;
@@ -118,6 +119,7 @@ typedef struct RSA_chunk {
 
 RSADEF void RSA_init(size_t arenaSize);
 RSADEF void* RSA_alloc(size_t size);
+RSADEF void* RSA_calloc(size_t size, size_t typeSize);
 RSADEF void RSA_free(void* ptr);
 RSADEF void RSA_deInit(void);
 
@@ -184,6 +186,19 @@ void* RSA_alloc(size_t size) {
     RSA_chunkLen++;
 
     return RSA_memory + start;
+}
+
+void* RSA_calloc(size_t size, size_t typeSize) {
+    void* ptr = RSA_alloc(size * typeSize);
+    if (ptr == NULL)
+        return NULL;
+
+    /*size_t i; 
+    for (i = 0; i < size; i++) {
+        ((u8*)ptr)[i] = 0;  
+    }*/
+
+    return ptr;
 }
 
 void RSA_free(void* ptr) {
