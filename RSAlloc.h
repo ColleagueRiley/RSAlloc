@@ -9,7 +9,8 @@
 *
 * Permission is granted to anyone to use this software for any purpose,
 * including commercial applications, and to alter it and redistribute it
-* freely, subject to the following restrictions:
+
+
 *
 * 1. The origin of this software must not be misrepresented; you must not
 *    claim that you wrote the original software. If you use this software
@@ -29,7 +30,6 @@
     #define RSA_DEBUG - show debug info
     #define RSA_MALLOC [x] / #define RSA_FREE [x] - define your own malloc/free functions to use
     #define RSA_DEFAULT_ARENA [x] - set default arena size
-    #define RSA_CHUNK_COUNT [x] - set max chunk count
 */
 
 #if (defined(_WIN32) || defined(_WIN64))
@@ -60,8 +60,8 @@
 #define RSA_DEFAULT_ARENA 4194000 /* ~ 4 MB */
 #endif
 
-#ifndef RSA_CHUNK_COUNT
-#define RSA_CHUNK_COUNT (RSA_DEFAULT_ARENA) / 8
+#ifndef RSA_DEFAULT_CHUNKS
+#define RSA_DEFAULT_CHUNKS RSA_DEFAULT_ARENA / 8
 #endif
 
 #if !_MSC_VER
@@ -127,18 +127,21 @@ extern "C" {
 
 #include <stddef.h>
 #include <string.h>
+#include <assert.h>
 
 typedef struct RSA_chunk {
-    size_t start;
     size_t len;
     b8 used;
+    struct RSA_chunk* next;
+    struct RSA_chunk* prev;
 } RSA_chunk;
 
-RSADEF void RSA_init(size_t arenaSize);
+RSADEF b8 RSA_init(size_t arenaSize);
 RSADEF void* RSA_alloc(size_t size);
 RSADEF void* RSA_calloc(size_t size, size_t typeSize);
-RSADEF void RSA_free(void* ptr);
-RSADEF void RSA_deInit(void);
+RSADEF RSA_chunk RSA_getChunkInfo(void* ptr);
+RSADEF b8 RSA_free(void* ptr);
+RSADEF b8 RSA_deInit(void);
 
 #endif /* RSA_HEADER */
 
@@ -159,20 +162,18 @@ void* RSA_memory;
 uintptr_t RSA_memory[RSA_DEFAULT_ARENA];
 #endif
 
-RSA_chunk RSA_chunks[RSA_CHUNK_COUNT] = {{0}};
-size_t RSA_chunkLen = 0;
-size_t RSA_freedChunks = 0;
-
 size_t RSA_arenaSize = 0;
 
-void RSA_init(size_t arenaSize) {
+RSA_chunk* RSA_freeList;
+
+b8 RSA_init(size_t arenaSize) {
     #ifndef RSA_BSS
     if (arenaSize == 0)
     #endif
     {
         arenaSize = RSA_DEFAULT_ARENA;
     }
-    
+
     RSA_arenaSize = arenaSize;
 
     #ifdef RSA_DEBUG
@@ -211,133 +212,157 @@ void RSA_init(size_t arenaSize) {
     printf("RSA_INFO : init'ed arena starting at %p\n", RSA_memory);
     #endif
 
-    #if defined(RSA_DEBUG) && !RSA_BSS
-    if (RSA_memory == NULL)
+    #ifndef RSA_BSS
+    if (RSA_memory == NULL) {
+        #if defined(RSA_DEBUG)
         printf("RSA_INFO : failed to allocate memory\n");
+        #endif
+        return 0;
+    }
     #endif
+
+    RSA_freeList = (RSA_chunk*)RSA_memory;
+    RSA_freeList->next = NULL;
+    RSA_freeList->used = 0;
+    RSA_freeList->prev = NULL;
+    RSA_freeList->len = RSA_arenaSize;
+
+    return 1;
 }
 
 void* RSA_alloc(size_t size) {
-    size_t start = 0;
+    size += sizeof(RSA_chunk);
+    if (size == 0 || size > RSA_arenaSize) {
+        #ifdef RSA_DEBUG
+        printf("RSA_INFO: chunk size out of bounds\n");
+        #endif
 
-    if (RSA_chunkLen) {
-        size_t i = 0; 
-        for (i = 0; i < RSA_chunkLen; i++) {
-            if (RSA_chunks[i].used) {
-                start = RSA_chunks[i].start + RSA_chunks[i].len;
-            }
-            else if (RSA_chunks[i].len >= size) {
-                start = RSA_chunks[i].start;
-                
-                #ifdef RSA_DEBUG
-                    printf("RSA_INFO : Reusing free'd memory\n");
-                #endif
-
-                if (RSA_chunks[i].len - size || i == RSA_CHUNK_COUNT - 1) {
-                    RSA_chunks[i].start += size;
-                    RSA_chunks[i].len -= size;
-
-                    #ifdef RSA_DEBUG
-                    printf("RSA_INFO : Moving free chunk to %p\n", RSA_memory + start + size);
-                    #endif
-
-                    break;
-                }
-
-                #ifdef RSA_DEBUG
-                printf("RSA_INFO : Deleting dead chunk at %p\n", RSA_memory + start);
-                #endif
-
-                memcpy(RSA_chunks + 1, &RSA_chunks[i + 1], RSA_chunkLen - i);
-                RSA_chunks[RSA_CHUNK_COUNT - 1].used = 0;
-
-                break;
-            }
-        }    
+        return NULL;
     }
 
-    if (start + size >= RSA_arenaSize)
-        return NULL;
-
-    RSA_chunks[RSA_chunkLen].start = start;
-    RSA_chunks[RSA_chunkLen].len = size;
-    RSA_chunks[RSA_chunkLen].used = 1;
-    RSA_chunkLen++;
 
     #ifdef RSA_DEBUG
-    printf("RSA_INFO : allocated " RSA_PRINT_U64 " sized chunk at %p\n", size, RSA_memory + start);
+    b8 reused = 0;
     #endif
 
-    return RSA_memory + start;
+    RSA_chunk* findchunk = RSA_freeList;
+    while (findchunk->next != NULL && (findchunk->len < size || findchunk->used)) {
+        findchunk = findchunk->next;
+        #ifdef RSA_DEBUG
+        reused = 1;
+        #endif
+    }
+
+    if (findchunk->next == NULL && (findchunk->len < size || findchunk->used)) {
+        #ifdef RSA_DEBUG
+        printf("RSA_INFO: no room for chunk found\n");
+        #endif
+
+        return NULL;
+    }
+
+    #ifdef RSA_DEBUG
+    if (reused)
+        printf("RSA_INFO: Reusing free'd memory\n");
+    #endif
+
+    if (RSA_freeList->next != NULL) {
+        RSA_chunk* head = RSA_freeList->next;
+        RSA_freeList->next = (RSA_chunk*)(RSA_freeList + size);
+        RSA_freeList->next->next = head;
+    } else {
+        RSA_freeList->next = (RSA_chunk*)(RSA_freeList + size);
+    }
+
+    RSA_freeList->next->prev = RSA_freeList;
+    RSA_freeList->next->len =  RSA_freeList->len - size;
+    RSA_freeList->next->used = 0;
+    RSA_freeList = RSA_freeList->next;
+
+    #ifdef RSA_DEBUG
+    printf("RSA_INFO : allocated " RSA_PRINT_U64 " sized chunk at %p\n", size, ((char*)findchunk));
+    #endif
+
+    findchunk->len = size;
+    findchunk->used = 1;
+
+    return (void*)(((char*)findchunk) + sizeof(RSA_chunk));
 }
 
 void* RSA_calloc(size_t size, size_t typeSize) {
     void* ptr = RSA_alloc(size * typeSize);
-    if (ptr == NULL)
-        return NULL;
+    assert(ptr != NULL);
 
-    size_t i; 
+    size_t i;
     for (i = 0; i < size * typeSize; i++) {
-        ((u8*)ptr)[i] = 0;  
+        ((u8*)ptr)[i] = 0;
     }
 
     return ptr;
 }
 
-void RSA_free(void* ptr) {
-    size_t index = ptr - (void*)RSA_memory;
-
-    size_t i = 0; 
-    for (i = 0; i < RSA_chunkLen; i++) {
-        if (index == RSA_chunks[i].start) {
-            RSA_chunks[i].used = 0;
-        
-            #ifdef RSA_DEBUG
-            printf("RSA_INFO : freed " RSA_PRINT_U64 " sized chunk at %p\n", RSA_chunks[i].len, RSA_memory + RSA_chunks[i].start);
-            #endif
-
-            if (i && RSA_chunks[i - 1].used == 0) {
-                #ifdef RSA_DEBUG
-                printf("RSA_INFO : merging free chunk %p with %p to create a " RSA_PRINT_U64 " sized free chunk\n", 
-                    RSA_memory + RSA_chunks[i - 1].start,
-                    RSA_memory + RSA_chunks[i].start,
-                    RSA_chunks[i - 1].len + RSA_chunks[i].len
-                );
-                #endif
-
-                RSA_chunks[i - 1].len += RSA_chunks[i].len;
-                RSA_chunks[i].len = 0;
-                
-                memcpy(RSA_chunks + i, &RSA_chunks[i + 1], RSA_chunkLen - i);
-                RSA_chunks[RSA_CHUNK_COUNT - 1].used = 0;
-            }
-
-            #ifdef RSA_DEBUG
-            RSA_freedChunks += 1;
-            #endif
-        }
-    }
+RSA_chunk RSA_getChunkInfo(void* ptr) {
+    return *((RSA_chunk*)ptr - 1);
 }
 
-void RSA_deInit(void) {
+b8 RSA_free(void* ptr) {
+    assert(ptr != NULL);
+
+    RSA_chunk* chunk = (RSA_chunk*)ptr - 1;
+    chunk->used = 0;
+
+    #ifdef RSA_DEBUG
+    printf("RSA_INFO : freed " RSA_PRINT_U64 " sized chunk at %p\n", chunk->len, chunk);
+    #endif
+
+    if (chunk->prev != NULL && chunk->prev->used == 0) {
+        #ifdef RSA_DEBUG
+        printf("RSA_INFO : merging free chunk %p with %p to create a " RSA_PRINT_U64 " sized free chunk\n",
+                        chunk->prev, chunk, chunk->prev->len + chunk->len);
+        #endif
+
+        chunk->prev->len += chunk->len;
+        chunk = chunk->prev;
+    }
+
+    RSA_chunk* head = RSA_freeList;
+    RSA_freeList = chunk;
+    RSA_freeList->next = head;
+
+    return 1;
+}
+
+b8 RSA_deInit(void) {
+    b8 result = 1;
+
+    #ifdef RSA_DEBUG
+    size_t leaks = 0;
+    /*RSA_chunk* findchunk = RSA_freeList;
+
+    while (findchunk != NULL) {
+        if (findchunk->used)
+            leaks += 1;
+        findchunk = findchunk->next;
+    }*/
+
+    printf("RSA_INFO : DeInit with " RSA_PRINT_U64 " possible memory leaks\n", leaks);
+    #endif
+
     #ifdef RSA_MALLOC
     free(RSA_memory);
     #endif
 
     #ifdef RSA_MMAP
-    munmap(RSA_memory, RSA_arenaSize);
+    result = (munmap(RSA_memory, RSA_arenaSize) == 0);
     #endif
 
     #ifdef RSA_VIRTUAL_ALLOC
-    VirtualFreeEx(GetCurrentProcess(), RSA_memory, 0, MEM_RELEASE);
+    result = VirtualFreeEx(GetCurrentProcess(), RSA_memory, 0, MEM_RELEASE);
     #endif
 
-    #ifdef RSA_DEBUG
-    printf("RSA_INFO : DeInit with " RSA_PRINT_U64 " possible memory leaks\n", RSA_chunkLen - RSA_freedChunks);
-    #endif
-
-    RSA_chunkLen = 0;
     RSA_arenaSize = 0;
+    RSA_freeList = NULL;
+    return result;
 }
 
 #endif /* RSALLOC_IMPLEMENTATION */
